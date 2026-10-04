@@ -44,7 +44,7 @@
       cursor: pointer;
       font-weight: bold;
     }
-    button:disabled { background: #21262d; cursor: not-allowed; }
+    button:disabled { background: #21262d; cursor: not-allowed; opacity: 0.6; }
     #status { margin-top: 1rem; color: #8b949e; }
     #result {
       margin-top: 1.5rem;
@@ -73,8 +73,8 @@
 <body>
 
   <div class="box">
-    <h1>LHBP v1.3 🤖❌</h1>
-    <p>Zero-Backend 275k Word Engine</p>
+    <h1>LHBP v1.4 🤖❌</h1>
+    <p>Zero-Backend OCR & RAM Dictionary Engine</p>
     
     <input type="file" id="imageInput" accept="image/*" />
     <br />
@@ -82,7 +82,7 @@
     <br />
     <button id="scanBtn" disabled>Run LHBP Analysis</button>
 
-    <div id="status">Loading English dictionary database...</div>
+    <div id="status">Loading dictionary database...</div>
     <div id="result"></div>
     <div id="log" class="log"></div>
   </div>
@@ -95,26 +95,44 @@
     const result = document.getElementById('result');
     const log = document.getElementById('log');
 
-    let dictionarySet = new Set();
+    // starter pack so it works even if offline/cdn drops
+    const fallbackWords = [
+      "the","and","for","are","with","which","this","that","have","not","but","they","from","what",
+      "video","game","console","preorders","selling","minutes","across","online","sites","retail",
+      "generated","mistakes","youtube","home","search","images","notifications","activity","updates",
+      "team","follow","legend","zelda","edition","special","system","celebration","hardware","spark",
+      "frustration","fans","struggling","secure","chicken","sandwich","pizza","wednesday","thursday",
+      "friday","monday","tuesday","tacos","nachos","cheeseburger","uncrustable","player"
+    ];
+
+    let dictionarySet = new Set(fallbackWords);
+    let dictReady = false;
     let loadedFile = null;
 
-    // fetch raw 275k words json right from CDN into browser RAM
     async function loadDictionary() {
       try {
-        const res = await fetch('https://cdn.jsdelivr.net/gh/words/an-array-of-english-words@master/words.json');
+        const res = await fetch('https://raw.githubusercontent.com/words/an-array-of-english-words/master/words.json');
+        if (!res.ok) throw new Error('CDN response not ok');
         const words = await res.json();
-        dictionarySet = new Set(words);
+        words.forEach(w => dictionarySet.add(w.toLowerCase()));
         
-        // slap extra food/calendar terms right in
-        ['wednesday', 'thursday', 'cheeseburger', 'uncrustable', 'calzone', 'calzones', 'taco', 'tacos', 'nachos', 'pbj'].forEach(w => dictionarySet.add(w));
-        
-        status.innerText = "System ready. 275,000+ words loaded in RAM.";
+        fallbackWords.forEach(w => dictionarySet.add(w));
+        dictReady = true;
+        status.innerText = `Ready! (${dictionarySet.size.toLocaleString()} words loaded in RAM).`;
       } catch (e) {
-        console.error("Dictionary load failed, falling back", e);
-        status.innerText = "Ready (Using basic mode).";
+        console.warn("External wordlist failed, using built-in set:", e);
+        dictReady = true;
+        status.innerText = `Ready (Offline core loaded: ${dictionarySet.size} words).`;
       }
+      checkReadyState();
     }
     loadDictionary();
+
+    function checkReadyState() {
+      if (loadedFile && dictReady) {
+        scanBtn.disabled = false;
+      }
+    }
 
     imageInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
@@ -122,16 +140,16 @@
       loadedFile = file;
       preview.src = URL.createObjectURL(file);
       preview.style.display = 'inline-block';
-      scanBtn.disabled = false;
       result.style.display = 'none';
       log.style.display = 'none';
+      checkReadyState();
     });
 
     scanBtn.addEventListener('click', async () => {
-      if (!loadedFile) return;
+      if (!loadedFile || !dictReady) return;
 
       scanBtn.disabled = true;
-      status.innerText = "Step 1: Reading text patterns with OCR...";
+      status.innerText = "Step 1: Reading text with OCR...";
       result.style.display = 'none';
       log.style.display = 'none';
 
@@ -162,7 +180,7 @@
           return;
         }
 
-        status.innerText = "Step 2: Checking words in RAM...";
+        status.innerText = "Step 2: Cross-referencing dictionary in RAM...";
 
         const validWords = [];
         const fakeWords = [];
