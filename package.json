@@ -1,0 +1,8 @@
+{
+  "name": "lhbp-backend",
+  "version": "1.2.0",
+  "type": "module",
+  "dependencies": {
+    "an-array-of-english-words": "^2.0.0"
+  }
+}
