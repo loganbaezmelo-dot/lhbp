@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Logan's Homemade Bot-or-human Predictor (LHBP) v1.1</title>
+  <title>Logan's Homemade Bot-or-human Predictor (LHBP)</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     * { box-sizing: border-box; font-family: monospace; }
@@ -73,8 +73,8 @@
 <body>
 
   <div class="box">
-    <h1>LHBP v1.1 🤖❌</h1>
-    <p>Upload an image to verify real vs synthetic text via proxy dictionary</p>
+    <h1>LHBP v1.2 🤖❌</h1>
+    <p>Offline 275k Word Node Engine</p>
     
     <input type="file" id="imageInput" accept="image/*" />
     <br />
@@ -113,7 +113,7 @@
       if (!loadedFile) return;
 
       scanBtn.disabled = true;
-      status.innerText = "Step 1: Reading text patterns with OCR...";
+      status.innerText = "Step 1: Running OCR vision scanner...";
       result.style.display = 'none';
       log.style.display = 'none';
 
@@ -142,16 +142,15 @@
           return;
         }
 
-        status.innerText = "Step 2: Checking words against dictionary proxy...";
+        status.innerText = "Step 2: Checking 275k word dictionary in Node...";
 
-        // send tokens to proxy.js
         const res = await fetch('/api/proxy', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ words: cleanTokens })
         });
 
-        if (!res.ok) throw new Error("Proxy error: " + res.statusText);
+        if (!res.ok) throw new Error("Node proxy error: " + res.statusText);
 
         const dataProxy = await res.json();
         const totalChecked = dataProxy.totalChecked;
@@ -159,28 +158,28 @@
         const ratio = totalChecked > 0 ? (realCount / totalChecked) : 0;
 
         log.style.display = 'block';
-        log.innerText = `Extracted Text Sample:\n"${rawText.slice(0, 180)}..."\n\nVerified Words (${realCount}/${totalChecked}):\n` + 
+        log.innerText = `Extracted Text Sample:\n"${rawText.slice(0, 180)}..."\n\nVerified Real Words (${realCount}/${totalChecked}):\n` + 
           JSON.stringify(dataProxy.validWords) + 
           `\n\nRejected / Gibberish Words:\n` + 
           JSON.stringify(dataProxy.fakeWords);
 
-        // verdict logic: if there are multiple confirmed real english words, it's human
-        if (realCount >= 4 || ratio >= 0.40) {
+        // verdict check
+        if (realCount >= 5 || ratio >= 0.35) {
           result.className = "human";
-          result.innerText = "✅ LIKELY HUMAN (Real dictionary words verified)";
+          result.innerText = "✅ LIKELY HUMAN (Real text verified)";
         } else if (totalChecked >= 3 && ratio < 0.20) {
           result.className = "bot";
           result.innerText = "🚨 LIKELY AI BOT (High gibberish ratio)";
         } else {
           result.className = "bot";
-          result.innerText = "⚠️ SUSPECTED AI / UNCERTAIN";
+          result.innerText = "⚠️ SUSPECTED AI / INCONCLUSIVE";
         }
 
         result.style.display = 'block';
-        status.innerText = `Accuracy check: ${(ratio * 100).toFixed(0)}% dictionary match (${realCount} real words found).`;
+        status.innerText = `Scan complete: ${(ratio * 100).toFixed(0)}% match (${realCount} real words).`;
 
       } catch (err) {
-        status.innerText = "Error running scan or proxy failed 💀";
+        status.innerText = "Error running LHBP scan 💀";
         console.error(err);
       } finally {
         scanBtn.disabled = false;
