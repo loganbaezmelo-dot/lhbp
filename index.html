@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Logan's Homemade Bot-or-human Predictor (LHBP)</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    * { box-sizing: border-box; font-family: monospace; }
+    body {
+      background: #0f111a;
+      color: #e6edf3;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem;
+      margin: 0;
+    }
+    .box {
+      background: #161b22;
+      border: 2px dashed #30363d;
+      border-radius: 12px;
+      padding: 2rem;
+      max-width: 550px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 { color: #58a6ff; font-size: 1.4rem; margin-top: 0; }
+    input[type="file"] { margin: 1rem 0; }
+    #preview {
+      max-width: 100%;
+      max-height: 250px;
+      border-radius: 8px;
+      margin: 1rem 0;
+      display: none;
+    }
+    button {
+      background: #238636;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      font-size: 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:disabled { background: #21262d; cursor: not-allowed; }
+    #status { margin-top: 1rem; color: #8b949e; }
+    #result {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      border-radius: 6px;
+      font-size: 1.2rem;
+      font-weight: bold;
+      display: none;
+    }
+    .human { background: #23863633; color: #3fb950; border: 1px solid #238636; }
+    .bot { background: #da363333; color: #f85149; border: 1px solid #da3633; }
+    .log {
+      margin-top: 1rem;
+      text-align: left;
+      font-size: 0.85rem;
+      color: #8b949e;
+      background: #0d1117;
+      padding: 0.8rem;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="box">
+    <h1>LHBP v1.0 🤖❌</h1>
+    <p>Upload an image to check if the text is real or ai gibberish</p>
+    
+    <input type="file" id="imageInput" accept="image/*" />
+    <br />
+    <img id="preview" alt="Preview" />
+    <br />
+    <button id="scanBtn" disabled>Run LHBP Analysis</button>
+
+    <div id="status"></div>
+    <div id="result"></div>
+    <div id="log" class="log"></div>
+  </div>
+
+  <script>
+    const imageInput = document.getElementById('imageInput');
+    const preview = document.getElementById('preview');
+    const scanBtn = document.getElementById('scanBtn');
+    const status = document.getElementById('status');
+    const result = document.getElementById('result');
+    const log = document.getElementById('log');
+
+    // common english words to test against ai alien hieroglyphics
+    const commonWords = new Set([
+      "the","be","to","of","and","a","in","that","have","i","it","for","not","on",
+      "with","he","as","you","do","at","this","but","his","by","from","they","we",
+      "say","her","she","or","an","will","my","one","all","would","there","their",
+      "what","so","up","out","if","about","who","get","which","go","me","when",
+      "make","can","like","time","no","just","him","know","take","people","into",
+      "year","your","good","some","could","them","see","other","than","then","now",
+      "look","only","come","its","over","think","also","back","after","use","two",
+      "how","our","work","first","well","way","even","new","want","because","any",
+      "these","give","day","most","us","coffee","open","exit","stop","shop","hotel",
+      "bar","street","city","road","store","market","food","cafe","police","bank"
+    ]);
+
+    let loadedFile = null;
+
+    imageInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      loadedFile = file;
+      preview.src = URL.createObjectURL(file);
+      preview.style.display = 'inline-block';
+      scanBtn.disabled = false;
+      result.style.display = 'none';
+      log.style.display = 'none';
+      status.innerText = "Ready to scan.";
+    });
+
+    scanBtn.addEventListener('click', async () => {
+      if (!loadedFile) return;
+
+      scanBtn.disabled = true;
+      status.innerText = "Scanning text patterns with OCR...";
+      result.style.display = 'none';
+      log.style.display = 'none';
+
+      try {
+        const { data } = await Tesseract.recognize(loadedFile, 'eng', {
+          logger: (m) => {
+            if (m.status === 'recognizing text') {
+              status.innerText = `Analyzing image... ${(m.progress * 100).toFixed(0)}%`;
+            }
+          }
+        });
+
+        const rawText = data.text || "";
+        const cleanTokens = rawText
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, '')
+          .split(/\s+/)
+          .filter(w => w.length > 1);
+
+        log.style.display = 'block';
+        log.innerText = `Raw Extracted Text:\n"${rawText.trim() || '[No text detected]'}"\n\nTokens checked: ${JSON.stringify(cleanTokens)}`;
+
+        if (cleanTokens.length === 0) {
+          result.className = "bot";
+          result.innerText = "⚠️ Inconclusive / No readable text found";
+          result.style.display = 'block';
+          status.innerText = "Done.";
+          scanBtn.disabled = false;
+          return;
+        }
+
+        let realWordHits = 0;
+        cleanTokens.forEach(word => {
+          if (commonWords.has(word)) realWordHits++;
+        });
+
+        const hitRatio = realWordHits / cleanTokens.length;
+
+        // if it detects text but 0 or almost none of it are real words, it's ai soup
+        if (cleanTokens.length >= 2 && hitRatio < 0.25) {
+          result.className = "bot";
+          result.innerText = "🚨 LIKELY AI BOT (Gibberish text detected)";
+        } else if (realWordHits >= 1) {
+          result.className = "human";
+          result.innerText = "✅ LIKELY HUMAN (Legible real words detected)";
+        } else {
+          result.className = "bot";
+          result.innerText = "🚨 SUSPECTED AI (Text looks like fake glyphs)";
+        }
+
+        result.style.display = 'block';
+        status.innerText = `Score: ${(hitRatio * 100).toFixed(0)}% real word match.`;
+
+      } catch (err) {
+        status.innerText = "Error running scan 💀";
+        console.error(err);
+      } finally {
+        scanBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
