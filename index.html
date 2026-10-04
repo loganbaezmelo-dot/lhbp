@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Logan's Homemade Bot-or-human Predictor (LHBP)</title>
+  <title>Logan's Homemade Bot-or-human Predictor (LHBP) v1.1</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     * { box-sizing: border-box; font-family: monospace; }
@@ -21,7 +21,7 @@
       border: 2px dashed #30363d;
       border-radius: 12px;
       padding: 2rem;
-      max-width: 550px;
+      max-width: 600px;
       width: 100%;
       text-align: center;
     }
@@ -73,8 +73,8 @@
 <body>
 
   <div class="box">
-    <h1>LHBP v1.0 🤖❌</h1>
-    <p>Upload an image to check if the text is real or ai gibberish</p>
+    <h1>LHBP v1.1 🤖❌</h1>
+    <p>Upload an image to verify real vs synthetic text via proxy dictionary</p>
     
     <input type="file" id="imageInput" accept="image/*" />
     <br />
@@ -95,20 +95,6 @@
     const result = document.getElementById('result');
     const log = document.getElementById('log');
 
-    // common english words to test against ai alien hieroglyphics
-    const commonWords = new Set([
-      "the","be","to","of","and","a","in","that","have","i","it","for","not","on",
-      "with","he","as","you","do","at","this","but","his","by","from","they","we",
-      "say","her","she","or","an","will","my","one","all","would","there","their",
-      "what","so","up","out","if","about","who","get","which","go","me","when",
-      "make","can","like","time","no","just","him","know","take","people","into",
-      "year","your","good","some","could","them","see","other","than","then","now",
-      "look","only","come","its","over","think","also","back","after","use","two",
-      "how","our","work","first","well","way","even","new","want","because","any",
-      "these","give","day","most","us","coffee","open","exit","stop","shop","hotel",
-      "bar","street","city","road","store","market","food","cafe","police","bank"
-    ]);
-
     let loadedFile = null;
 
     imageInput.addEventListener('change', (e) => {
@@ -127,7 +113,7 @@
       if (!loadedFile) return;
 
       scanBtn.disabled = true;
-      status.innerText = "Scanning text patterns with OCR...";
+      status.innerText = "Step 1: Reading text patterns with OCR...";
       result.style.display = 'none';
       log.style.display = 'none';
 
@@ -135,7 +121,7 @@
         const { data } = await Tesseract.recognize(loadedFile, 'eng', {
           logger: (m) => {
             if (m.status === 'recognizing text') {
-              status.innerText = `Analyzing image... ${(m.progress * 100).toFixed(0)}%`;
+              status.innerText = `OCR scanning... ${(m.progress * 100).toFixed(0)}%`;
             }
           }
         });
@@ -143,46 +129,58 @@
         const rawText = data.text || "";
         const cleanTokens = rawText
           .toLowerCase()
-          .replace(/[^a-z0-9\s]/g, '')
+          .replace(/[^a-z\s]/g, ' ')
           .split(/\s+/)
-          .filter(w => w.length > 1);
-
-        log.style.display = 'block';
-        log.innerText = `Raw Extracted Text:\n"${rawText.trim() || '[No text detected]'}"\n\nTokens checked: ${JSON.stringify(cleanTokens)}`;
+          .filter(w => w.length > 2);
 
         if (cleanTokens.length === 0) {
           result.className = "bot";
           result.innerText = "⚠️ Inconclusive / No readable text found";
           result.style.display = 'block';
-          status.innerText = "Done.";
+          status.innerText = "Scan finished.";
           scanBtn.disabled = false;
           return;
         }
 
-        let realWordHits = 0;
-        cleanTokens.forEach(word => {
-          if (commonWords.has(word)) realWordHits++;
+        status.innerText = "Step 2: Checking words against dictionary proxy...";
+
+        // send tokens to proxy.js
+        const res = await fetch('/api/proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ words: cleanTokens })
         });
 
-        const hitRatio = realWordHits / cleanTokens.length;
+        if (!res.ok) throw new Error("Proxy error: " + res.statusText);
 
-        // if it detects text but 0 or almost none of it are real words, it's ai soup
-        if (cleanTokens.length >= 2 && hitRatio < 0.25) {
-          result.className = "bot";
-          result.innerText = "🚨 LIKELY AI BOT (Gibberish text detected)";
-        } else if (realWordHits >= 1) {
+        const dataProxy = await res.json();
+        const totalChecked = dataProxy.totalChecked;
+        const realCount = dataProxy.realWordCount;
+        const ratio = totalChecked > 0 ? (realCount / totalChecked) : 0;
+
+        log.style.display = 'block';
+        log.innerText = `Extracted Text Sample:\n"${rawText.slice(0, 180)}..."\n\nVerified Words (${realCount}/${totalChecked}):\n` + 
+          JSON.stringify(dataProxy.validWords) + 
+          `\n\nRejected / Gibberish Words:\n` + 
+          JSON.stringify(dataProxy.fakeWords);
+
+        // verdict logic: if there are multiple confirmed real english words, it's human
+        if (realCount >= 4 || ratio >= 0.40) {
           result.className = "human";
-          result.innerText = "✅ LIKELY HUMAN (Legible real words detected)";
+          result.innerText = "✅ LIKELY HUMAN (Real dictionary words verified)";
+        } else if (totalChecked >= 3 && ratio < 0.20) {
+          result.className = "bot";
+          result.innerText = "🚨 LIKELY AI BOT (High gibberish ratio)";
         } else {
           result.className = "bot";
-          result.innerText = "🚨 SUSPECTED AI (Text looks like fake glyphs)";
+          result.innerText = "⚠️ SUSPECTED AI / UNCERTAIN";
         }
 
         result.style.display = 'block';
-        status.innerText = `Score: ${(hitRatio * 100).toFixed(0)}% real word match.`;
+        status.innerText = `Accuracy check: ${(ratio * 100).toFixed(0)}% dictionary match (${realCount} real words found).`;
 
       } catch (err) {
-        status.innerText = "Error running scan 💀";
+        status.innerText = "Error running scan or proxy failed 💀";
         console.error(err);
       } finally {
         scanBtn.disabled = false;
